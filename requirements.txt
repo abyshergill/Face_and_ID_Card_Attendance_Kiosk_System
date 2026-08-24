@@ -1,0 +1,21 @@
+# --- Core UI ---
+PyQt5==5.15.10
+
+# --- Face detection & recognition (OpenCV with the "contrib" face module) ---
+opencv-contrib-python==4.9.0.80
+numpy==1.26.4
+
+# --- Database ORM (works with SQLite out of the box, and PostgreSQL below) ---
+SQLAlchemy==2.0.30
+
+# --- Hardware pass-signal (microcontroller / Arduino / ESP32 over USB-Serial) ---
+pyserial==3.5
+
+# --- PRODUCTION DATABASE DRIVER ---
+# Required only if you switch config.DATABASE_URL to a postgresql+psycopg2://
+# connection string for production. Safe to leave installed either way.
+psycopg2-binary==2.9.9
+
+# --- OPTIONAL: Raspberry Pi GPIO hardware signalling ---
+# Uncomment on a Raspberry Pi if using HARDWARE_SIGNAL_MODE=GPIO instead of SERIAL.
+# RPi.GPIO==0.7.1

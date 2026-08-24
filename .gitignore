@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+data/*.db
+assets/faces/*
+!assets/faces/.gitkeep
+assets/model/*
+!assets/model/.gitkeep
+logs/*.log
+.env
+venv/
+.venv/
