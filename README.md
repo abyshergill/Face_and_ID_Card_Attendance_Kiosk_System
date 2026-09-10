@@ -1,4 +1,4 @@
-# 🧬 Face Attendance System
+# Face & ID Card Attendance Kiosk System
 
 A production-ready desktop face-recognition attendance system built with **Python 3** and **PyQt5**, featuring two modes (Admin / User), configurable per-field data privacy, SQLite storage with a documented PostgreSQL upgrade path for centralized **multi-kiosk / multi-PC** deployments, per-location access control, and an optional physical PASS-signal output for integrating turnstiles, door locks, LEDs, or buzzers via a microcontroller.
 
