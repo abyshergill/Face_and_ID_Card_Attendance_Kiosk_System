@@ -1,5 +1,6 @@
 """Admin self-service password change dialog."""
 import logging
+import re
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -12,15 +13,17 @@ from database.models import AdminAccount
 
 logger = logging.getLogger("attendance.ui.change_password")
 
-MIN_PASSWORD_LENGTH = 8
-
+def is_strong_password(password):
+    """Requires 8+ chars, 1 uppercase, 1 lowercase, 1 number, 1 special character."""
+    pattern = r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$"
+    return bool(re.match(pattern, password))
 
 class ChangePasswordDialog(QDialog):
     def __init__(self, admin_username, parent=None):
         super().__init__(parent)
         self.admin_username = admin_username
         self.setWindowTitle("Change Password")
-        self.setFixedSize(380, 280)
+        self.setFixedSize(400, 300)
 
         layout = QVBoxLayout(self)
 
@@ -40,10 +43,10 @@ class ChangePasswordDialog(QDialog):
 
         form.addRow("Current Password:", self.current_pw)
         form.addRow("New Password:", self.new_pw)
-        form.addRow("Confirm New Password:", self.confirm_pw)
+        form.addRow("Confirm Password:", self.confirm_pw)
         layout.addLayout(form)
 
-        hint = QLabel(f"New password must be at least {MIN_PASSWORD_LENGTH} characters.")
+        hint = QLabel("Password MUST contain at least:\n• 8 characters\n• 1 Uppercase letter\n• 1 Lowercase letter\n• 1 Number\n• 1 Special Character (!@#$%^&*)")
         hint.setStyleSheet("color:#777; font-size:11px;")
         layout.addWidget(hint)
 
@@ -66,27 +69,17 @@ class ChangePasswordDialog(QDialog):
             QMessageBox.warning(self, "Missing Fields", "Please fill in all three fields.")
             return
 
-        if len(new) < MIN_PASSWORD_LENGTH:
-            QMessageBox.warning(
-                self, "Password Too Short",
-                f"New password must be at least {MIN_PASSWORD_LENGTH} characters.",
-            )
+        if not is_strong_password(new):
+            QMessageBox.warning(self, "Weak Password", "Password does not meet the security requirements.")
             return
 
         if new != confirm:
             QMessageBox.warning(self, "Mismatch", "New password and confirmation do not match.")
             return
 
-        if new == current:
-            QMessageBox.warning(self, "No Change", "New password must be different from the current password.")
-            return
-
         with get_session() as session:
             account = session.query(AdminAccount).filter_by(username=self.admin_username).first()
-            if not account:
-                QMessageBox.critical(self, "Error", "Admin account not found.")
-                return
-
+            
             if not verify_password(current, account.salt, account.password_hash):
                 QMessageBox.critical(self, "Incorrect Password", "Your current password is incorrect.")
                 self.current_pw.clear()

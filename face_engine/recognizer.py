@@ -4,8 +4,9 @@ Face detection + recognition engine.
 Uses OpenCV's Haar Cascade for face detection and LBPH (Local Binary
 Patterns Histograms) for recognition. This combination requires no GPU,
 no large model downloads, and no dlib compilation - making it easy to
-deploy on kiosk-grade Windows/Linux/Raspberry Pi hardware while still
-being fully production-capable for single/multi-camera attendance use.
+deploy on kiosk-grade Windows/Linux/Raspberry Pi hardware.
+
+Images are fetched directly from the database as binary blobs.
 """
 import json
 import logging
@@ -20,12 +21,9 @@ logger = logging.getLogger("attendance.face")
 
 
 class FaceRecognizer:
-
     def __init__(self):
-        # 1. Try OpenCV built-in directory (normalized with Path)
-        cascade_path = Path(
-            cv2.data.haarcascades
-        ) / "haarcascade_frontalface_default.xml"
+        # 1. Try OpenCV built-in directory
+        cascade_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
 
         # 2. Fallback to project's local assets directory
         if not cascade_path.exists():
@@ -35,14 +33,12 @@ class FaceRecognizer:
                 / "haarcascade_frontalface_default.xml"
             )
 
-        # Ensure file exists on disk
         if not cascade_path.exists():
             raise FileNotFoundError(
                 f"Cascade XML file not found at: {cascade_path}\n"
                 "Please reinstall opencv-python or place the XML in your 'assets' folder."
             )
 
-        # Load into OpenCV using resolved string path
         self.detector = cv2.CascadeClassifier(str(cascade_path.resolve()))
 
         if self.detector.empty():
@@ -68,45 +64,57 @@ class FaceRecognizer:
         )
         if len(faces) == 0:
             return None, None
+            
         x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
         face_roi = cv2.resize(gray[y:y + h, x:x + w], (200, 200))
         return face_roi, (x, y, w, h)
 
     # ------------------------------------------------------------------
-    def train(self, employees):
+    def train(self, *args, **kwargs):
         """
-        employees: iterable of (face_label:int, employee_id:str, photo_dir:str)
-        Retrains the LBPH model from scratch using all enrollment photos on disk.
+        Fetches all face BLOBs directly from the database and trains the LBPH model.
+        (We ignore any arguments passed by workers to avoid thread-safety DB issues).
         """
-        faces, labels = [], []
+        from database.db_manager import get_session
+        from database.models import Employee, EmployeePhoto
+        
+        faces_data = []
+        labels_data = []
         new_label_map = {}
+        
+        with get_session() as session:
+            # Get all active employees
+            active_employees = session.query(Employee).filter_by(is_active=True).all()
+            
+            for emp in active_employees:
+                new_label_map[emp.face_label] = emp.employee_id
+                
+                # Fetch their binary photos from the DB
+                photos = session.query(EmployeePhoto).filter_by(employee_pk=emp.id).all()
+                
+                for photo in photos:
+                    # Convert the binary DB blob back into a CV2 numpy array
+                    nparr = np.frombuffer(photo.image_data, np.uint8)
+                    
+                    # Decode as Grayscale (since we cropped and saved it as Grayscale)
+                    face_img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+                    
+                    if face_img is not None:
+                        faces_data.append(face_img)
+                        labels_data.append(emp.face_label)
 
-        for face_label, employee_id, photo_dir in employees:
-            new_label_map[face_label] = employee_id
-            photo_path = Path(photo_dir)
-            if not photo_path.exists():
-                continue
-            for img_file in sorted(photo_path.glob("*.jpg")):
-                img = cv2.imread(str(img_file), cv2.IMREAD_GRAYSCALE)
-                if img is None:
-                    continue
-                face_roi, _ = self.detect_face(cv2.cvtColor(img, cv2.COLOR_GRAY2BGR))
-                if face_roi is None:
-                    face_roi = cv2.resize(img, (200, 200))
-                faces.append(face_roi)
-                labels.append(face_label)
-        print("TRAIN DEBUG:", employee_id, photo_dir, list(photo_path.glob("*.jpg")))
-        if not faces:
-            logger.warning("No enrollment images found - model NOT trained yet.")
+        if len(faces_data) > 0:
+            # Train the LBPH model
+            self.recognizer.train(faces_data, np.array(labels_data))
+            self.label_map = new_label_map
+            self._trained = True
+            self.save()
+            logger.info("Model retrained successfully on %d images across %d employees.", len(faces_data), len(new_label_map))
+            return True
+        else:
             self._trained = False
+            logger.warning("No enrollment images found in the database - model NOT trained yet.")
             return False
-
-        self.recognizer.train(faces, np.array(labels))
-        self.label_map = new_label_map
-        self._trained = True
-        self.save()
-        logger.info("Model retrained on %d images across %d employees.", len(faces), len(new_label_map))
-        return True
 
     # ------------------------------------------------------------------
     def predict(self, face_roi_gray):
@@ -138,11 +146,8 @@ class FaceRecognizer:
 
     def reload_if_changed(self) -> bool:
         """
-        Re-reads the model file from disk if its modification time has
-        advanced since the last load. Used by remote User-Mode kiosks that
-        share a network model path with the Admin dashboard PC, so a kiosk
-        automatically picks up newly enrolled employees without needing a
-        restart. Returns True if a reload actually happened.
+        Re-reads the model file from disk if its modification time has advanced.
+        Returns True if a reload actually happened.
         """
         try:
             if not config.MODEL_PATH.exists():

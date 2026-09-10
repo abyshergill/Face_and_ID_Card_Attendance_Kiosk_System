@@ -1,0 +1,5 @@
+Build Admin App:
+pyinstaller --noconsole --name "FaceAttendance_Admin" --add-data "assets/haarcascade_frontalface_default.xml;assets" main_admin.py
+
+Build Kiosk App:
+pyinstaller --noconsole --name "FaceAttendance_Kiosk" --add-data "assets/haarcascade_frontalface_default.xml;assets" main_kiosk.py
